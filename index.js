@@ -9,46 +9,47 @@ const client = new Client({
   ],
 });
 
-client.once(Events.ClientReady, (readyClient) => {
+// Define roles that are allowed to create polls
+const allowedRoles = ["ROLE_ID1", "ROLE_ID2"]; // Replace RoleID1, RoleID2 with actual role IDs
+
+// Define whitelisted servers
+const whitelistedServers = ["SERVER_ID1", "SERVER_ID2"]; // Replace ServerID1, ServerID2 with actual server IDs
+
+client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);
+
+  // Check each server the bot is part of
+  client.guilds.cache.forEach((guild) => {
+    if (!whitelistedServers.includes(guild.id)) {
+      console.log(`Leaving non-whitelisted server: ${guild.name}`);
+      guild.leave();
+    }
+  });
 });
 
 client.on(Events.Raw, async (packet) => {
-  // We need to hook into the raw event to detect the creation of polls, as discord.js/Discord API does not yet include it in the messageCreate event.
-
-  // This checks if the poll exists in the event received.
+  // Process polls creation
   if (packet.d.poll) {
-    // We grab the channel based on the data provided in the raw event, as we will be sending a message to it.
     const channel = await client.channels.fetch(packet.d.channel_id);
 
     if (!channel || !channel.isTextBased()) {
       console.log("Channel not found");
       return;
     }
-    // We grab the message based on the data provided in the raw event, as we will be deleting it.
-    const message = await channel.messages.fetch(packet.d.id).catch(() => {
-      console.log("Message not found");
-    });
 
-    // The message exists, we then delete it and send a message to the channel.
+    const message = await channel.messages.fetch(packet.d.id).catch(() => console.log("Message not found"));
+
     if (message) {
-      await message
-        .reply(`${message.author}, polls are not allowed in this server.`)
-        .catch((err) => {
-          console.log("Error replying to message: ", err);
-        });
-      await message.delete().catch((err) => {
-        console.log("Error deleting message: ", err);
-      });
-    } else {
-      // For the sake of this example, we will log that the message was not found.
-      console.log("Message not found");
+      // Check if the message author has an allowed role
+      const member = await message.guild.members.fetch(message.author.id);
+      const hasAllowedRole = member.roles.cache.some((role) => allowedRoles.includes(role.id));
+
+      if (!hasAllowedRole) {
+        await message.reply(`${message.author}, polls are not allowed in this server.`).catch((err) => console.log("Error replying to message: ", err));
+        await message.delete().catch((err) => console.log("Error deleting message: ", err));
+      }
     }
-  } else {
-    // For the sake of this example, we will log that a non-poll event was received, however this will get triggered for every event the Discord gateway sends to the bot.
-    console.log("A non-poll event was received.");
   }
 });
 
-// Log in to Discord with your client's token
 client.login(process.env.TOKEN);
